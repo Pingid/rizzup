@@ -1,24 +1,14 @@
-use anyhow::{Context, Result};
-use crossterm::{
-    event, execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
-use ratatui::widgets::{Block, Padding};
-use ratatui::{
-    backend::CrosstermBackend,
-    widgets::{Borders, Paragraph},
-    Terminal,
-};
+use anyhow::Result;
+use crossterm::event;
+use ratatui::{widgets::*, Terminal};
 use rizzup::prelude::*;
-use std::io::{stderr, Stderr};
 
-fn input() -> Child {
-    let state = use_state("".to_string());
+fn input() -> ChildRef {
+    let (reader, writer) = create_signal("".to_string());
 
-    let setter = state.clone();
     on(move |key: event::KeyCode| match key {
-        event::KeyCode::Char(ch) => setter.update(|x| x.push(ch)),
-        event::KeyCode::Backspace => setter.update(|x| {
+        event::KeyCode::Char(ch) => writer.update(|x| x.push(ch)),
+        event::KeyCode::Backspace => writer.update(|x| {
             x.pop();
         }),
         _ => {}
@@ -31,12 +21,14 @@ fn input() -> Child {
             .title("Start typeing")
             .title("(Press esc to exit)");
 
-        Box::new(Paragraph::new(state.get()).block(block))
+        Paragraph::new(reader.get()).block(block)
     })
 }
 
 fn main() -> Result<()> {
-    let mut term = setup_terminal()?;
+    let mut term = init_tui()?;
+    init_panic_hook();
+
     let events = Events::default();
     let app = App::new(input).with_layer(&events).render();
 
@@ -54,26 +46,27 @@ fn main() -> Result<()> {
         }
     }
 
-    restore_terminal(&mut term)?;
+    restore_tui()?;
 
     Ok(())
 }
 
-/// Setup the terminal. This is where you would enable raw mode, enter the alternate screen, and
-/// hide the cursor. This example does not handle errors. A more robust application would probably
-/// want to handle errors and ensure that the terminal is restored to a sane state before exiting.
-fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stderr>>> {
-    let mut stdout = stderr();
-    enable_raw_mode().context("failed to enable raw mode")?;
-    execute!(stdout, EnterAlternateScreen).context("unable to enter alternate screen")?;
-    Terminal::new(CrosstermBackend::new(stdout)).context("creating terminal failed")
+pub fn init_panic_hook() {
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let _ = restore_tui();
+        original_hook(panic_info);
+    }));
 }
 
-/// Restore the terminal. This is where you disable raw mode, leave the alternate screen, and show
-/// the cursor.
-fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<Stderr>>) -> Result<()> {
-    disable_raw_mode().context("failed to disable raw mode")?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)
-        .context("unable to switch to main screen")?;
-    terminal.show_cursor().context("unable to show cursor")
+pub fn init_tui() -> std::io::Result<Terminal<impl ratatui::backend::Backend>> {
+    crossterm::terminal::enable_raw_mode()?;
+    crossterm::execute!(std::io::stderr(), crossterm::terminal::EnterAlternateScreen)?;
+    Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stderr()))
+}
+
+pub fn restore_tui() -> Result<()> {
+    crossterm::terminal::disable_raw_mode()?;
+    crossterm::execute!(std::io::stderr(), crossterm::terminal::LeaveAlternateScreen)?;
+    Ok(())
 }

@@ -1,18 +1,20 @@
+use crate::{
+    node::{Node, NodeRef},
+    scope::{provide_layer, with_scope},
+};
 use std::any::Any;
 
-use super::{node::Child, scope::provide_layer};
-
-pub struct App {
-    f: Option<Box<dyn FnOnce() -> Child>>,
+pub struct App<T> {
+    f: Option<Box<dyn FnOnce() -> T>>,
 }
 
-impl App {
-    pub fn new(f: impl FnOnce() -> Child + 'static) -> Self {
+impl<T: NodeRef + 'static> App<T> {
+    pub fn new(f: impl FnOnce() -> T + 'static) -> Self {
         Self {
             f: Some(Box::new(f)),
         }
     }
-    pub fn with_layer<T: Clone + Any + 'static>(mut self, layer: &T) -> Self {
+    pub fn with_layer<L: Clone + Any + 'static>(mut self, layer: &L) -> Self {
         let original = self.f.take().expect("Should always have render fn");
         let layer = layer.clone();
         let next = Box::new(move || {
@@ -22,8 +24,10 @@ impl App {
         self.f.replace(next);
         self
     }
-    pub fn render(mut self) -> Child {
+
+    pub fn render(mut self) -> T {
         let f = self.f.take().expect("Should always have render fn");
+        with_scope(|s| s.set_current_node(Some(s.insert_node(Node::create_node_value(())))));
         f()
     }
 }
