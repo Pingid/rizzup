@@ -13,7 +13,7 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn create_node_value<V: Any + 'static>(value: V) -> Self {
+    pub fn create_with_value<V: Any + 'static>(value: V) -> Self {
         Self {
             f: None,
             value: Rc::new(RefCell::new(Some(Box::new(value)))),

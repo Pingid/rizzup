@@ -3,18 +3,18 @@ use crossterm::event;
 use ratatui::{widgets::*, Terminal};
 use rizzup::prelude::*;
 
-fn input() -> ChildRef {
+fn input(_: ReadSignal<()>) -> Child {
     let (reader, writer) = create_signal("".to_string());
 
-    on(move |key: event::KeyCode| match key {
-        event::KeyCode::Char(ch) => writer.update(|x| x.push(ch)),
+    on(move |key: &event::KeyCode| match key {
+        event::KeyCode::Char(ch) => writer.update(|x| x.push(*ch)),
         event::KeyCode::Backspace => writer.update(|x| {
             x.pop();
         }),
         _ => {}
     });
 
-    view(move || {
+    view_widget(move || {
         let block = Block::default()
             .padding(Padding::horizontal(1))
             .borders(Borders::all())
@@ -30,7 +30,7 @@ fn main() -> Result<()> {
     init_panic_hook();
 
     let events = Events::default();
-    let app = App::new(input).with_layer(&events).render();
+    let app = App::new(input, ()).with_layer(&events).render();
 
     loop {
         term.draw(|f| f.render_widget_ref(app, f.size()))?;

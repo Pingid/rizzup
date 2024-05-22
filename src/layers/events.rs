@@ -5,13 +5,13 @@ use std::{any::Any, cell::RefCell, rc::Rc};
 
 #[derive(Default, Clone)]
 pub struct Events {
-    listeners: Rc<RefCell<SecondaryMap<NodeId, Vec<Box<dyn Fn(Box<dyn Any>)>>>>>,
+    listeners: Rc<RefCell<SecondaryMap<NodeId, Vec<Box<dyn Fn(&Box<dyn Any>)>>>>>,
 }
 
 impl Events {
-    fn on<T: Clone + 'static>(&self, f: impl Fn(T) + 'static) {
-        let listener = Box::new(move |x: Box<dyn Any>| match x.downcast_ref::<T>() {
-            Some(x) => f(x.clone()),
+    fn on<T: 'static>(&self, f: impl Fn(&T) + 'static) {
+        let listener = Box::new(move |x: &Box<dyn Any>| match x.downcast_ref::<T>() {
+            Some(x) => f(x),
             None => {}
         });
         let id = with_scope(|s| s.get_current_node()).expect("Missing current node");
@@ -23,20 +23,27 @@ impl Events {
             .push(listener);
     }
 
-    pub fn dispatch_to<T: Clone + Any + 'static>(&self, id: NodeId, e: T) {
+    pub fn dispatch_boxed(&self, e: Box<dyn Any>) {
         let listeners = self.listeners.borrow();
-        if let Some(c) = listeners.get(id) {
-            for l in c.iter() {
-                l(Box::new(e.clone()));
+        for (_, listeners) in listeners.iter() {
+            for l in listeners {
+                l(&e);
             }
         }
     }
 
-    pub fn dispatch<T: Clone + Any + 'static>(&self, e: T) {
+    pub fn dispatch_to<T: Any + 'static>(&self, id: NodeId, e: T) {
         let listeners = self.listeners.borrow();
-        for (id, _) in listeners.iter() {
-            self.dispatch_to(id, e.clone());
+        let ev = Box::new(e) as Box<dyn Any>;
+        if let Some(c) = listeners.get(id) {
+            for l in c.iter() {
+                l(&ev);
+            }
         }
+    }
+
+    pub fn dispatch<T: Any + 'static>(&self, e: T) {
+        self.dispatch_boxed(Box::new(e) as Box<dyn Any>);
     }
 }
 
@@ -50,8 +57,29 @@ impl<T: NodeRef> Dispatch for T {
     }
 }
 
-pub fn on<T: Clone + 'static>(f: impl Fn(T) + 'static) {
+pub fn on<T: Clone + 'static>(f: impl Fn(&T) + 'static) {
     use_layer_option::<Events>()
         .expect("App is missing Events layer")
         .on(f);
 }
+
+#[macro_export]
+macro_rules! match_on {
+    ($tp:ty, $pt:pat => $exp:expr) => {{
+        on::<$tp>(move |ev| {
+            match ev {
+                $pt => $exp,
+                _ => {},
+            };
+        });
+    }};
+    ($tp:ty, { $($pt:pat => $exp:expr,)* }) => {{
+        on::<$tp>(move |ev| {
+            match ev {
+                $($pt => $exp,)*
+                _ => {},
+            };
+        });
+    }};
+}
+pub use match_on;

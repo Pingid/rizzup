@@ -3,15 +3,15 @@ use crossterm::event;
 use ratatui::Terminal;
 use rizzup::prelude::*;
 
-fn hello_world() -> ChildRef {
-    view(|| "Hello World! (press 'q' to quit)")
+fn hello_world(_: ReadSignal<()>) -> Child {
+    view_widget(|| "Hello World! (press 'q' to quit)")
 }
 
 fn main() -> Result<()> {
     let mut term = init_tui()?;
     init_panic_hook();
 
-    let app = App::new(hello_world).render();
+    let app = App::new(hello_world, ()).render();
 
     loop {
         term.draw(|f| f.render_widget_ref(app, f.size()))?;

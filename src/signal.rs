@@ -74,13 +74,13 @@ impl<T: Clone + 'static> SignalReader<T> for RwSignal<T> {}
 impl<T: Clone + 'static> SignalWriter<T> for RwSignal<T> {}
 
 pub fn create_signal<T: Clone + 'static>(value: T) -> (ReadSignal<T>, WriteSignal<T>) {
-    let node = Node::create_node_value(value);
+    let node = Node::create_with_value(value);
     let id = with_scope(|s| s.insert_node(node));
     (ReadSignal(id, PhantomData), WriteSignal(id, PhantomData))
 }
 
 pub fn create_rw_signal<T: Clone + 'static>(value: T) -> RwSignal<T> {
-    let node = Node::create_node_value(value);
+    let node = Node::create_with_value(value);
     let id = with_scope(|s| s.insert_node(node));
     RwSignal(id, PhantomData)
 }
