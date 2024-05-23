@@ -2,14 +2,14 @@ use anyhow::Result;
 use crossterm::event;
 use futures::StreamExt;
 use ratatui::{style::Stylize, text::*, widgets::*, Terminal};
-use rizzup::prelude::*;
+use rizzup::{create_async_scope, prelude::*, scope::provide_layer};
 
 #[derive(Debug, Clone)]
 enum Message {
     Blink(bool),
 }
 
-fn input(_: ReadSignal<()>) -> Child {
+fn input() -> Child {
     let (input_r, input_w) = create_signal("".to_string());
     let (blink_r, blink_w) = create_signal(false);
 
@@ -54,43 +54,46 @@ async fn main() -> Result<()> {
     let mut term = init_tui()?;
     init_panic_hook();
 
-    let events = Events::default();
-    let mut sync = AsyncTasks::new();
-    let app = App::new(input, ())
-        .with_layer(&events)
-        .with_layer(&sync.layer)
-        .render();
+    create_async_scope(|| async {
+        let events = Dispatcher::default();
+        let mut sync = AsyncTasks::default();
+        provide_layer(sync.layer.clone());
+        provide_layer(events.clone());
+        let app = input();
 
-    let mut reader = crossterm::event::EventStream::new();
-    let mut reciever = sync.reciever().await;
+        let mut reader = crossterm::event::EventStream::new();
+        let mut reciever = sync.reciever().await;
 
-    loop {
-        term.draw(|f| f.render_widget_ref(app, f.size()))?;
+        loop {
+            term.draw(|f| f.render_widget_ref(app, f.size()))?;
 
-        tokio::select! {
-            ev = reciever.recv() => match ev {
-                Some(m) => events.dispatch_boxed(m),
-                _ => {}
-            },
-            ev = reader.next() => match ev {
-                Some(Ok(event)) => {
-                    if let event::Event::Key(key) = event {
-                        if key.kind == event::KeyEventKind::Press {
-                            events.dispatch(key.code)
-                        }
-                        if key.kind == event::KeyEventKind::Press && key.code == event::KeyCode::Esc {
-                            break;
+            tokio::select! {
+                ev = reciever.recv() => match ev {
+                    Some(m) => events.dispatch_boxed(m),
+                    _ => {}
+                },
+                ev = reader.next() => match ev {
+                    Some(Ok(event)) => {
+                        if let event::Event::Key(key) = event {
+                            if key.kind == event::KeyEventKind::Press {
+                                events.dispatch(key.code)
+                            }
+                            if key.kind == event::KeyEventKind::Press && key.code == event::KeyCode::Esc {
+                                break;
+                            }
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
         }
-    }
 
-    let _ = sync.shutdown().await;
+        let _ = sync.shutdown().await;
 
-    restore_tui()?;
+        restore_tui()?;
+
+        Ok::<(), anyhow::Error>(())
+    }).await?;
 
     Ok(())
 }

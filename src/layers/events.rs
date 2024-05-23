@@ -1,14 +1,14 @@
-use crate::node::NodeRef;
-use crate::scope::{use_layer, use_layer_option, with_scope, NodeId};
+use crate::node::{NodeId, NodeRef};
+use crate::scope::{use_layer, use_layer_option, with_scope};
 use slotmap::SecondaryMap;
 use std::{any::Any, cell::RefCell, rc::Rc};
 
 #[derive(Default, Clone)]
-pub struct Events {
+pub struct Dispatcher {
     listeners: Rc<RefCell<SecondaryMap<NodeId, Vec<Box<dyn Fn(&Box<dyn Any>)>>>>>,
 }
 
-impl Events {
+impl Dispatcher {
     fn on<T: 'static>(&self, f: impl Fn(&T) + 'static) {
         let listener = Box::new(move |x: &Box<dyn Any>| match x.downcast_ref::<T>() {
             Some(x) => f(x),
@@ -53,12 +53,12 @@ pub trait Dispatch {
 
 impl<T: NodeRef> Dispatch for T {
     fn dispatch<E: Clone + Any + 'static>(&self, e: E) {
-        use_layer::<Events>().dispatch_to(self.get_node(), e)
+        use_layer::<Dispatcher>().dispatch_to(*self.node_id_ref(), e)
     }
 }
 
 pub fn on<T: Clone + 'static>(f: impl Fn(&T) + 'static) {
-    use_layer_option::<Events>()
+    use_layer_option::<Dispatcher>()
         .expect("App is missing Events layer")
         .on(f);
 }

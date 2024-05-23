@@ -1,5 +1,5 @@
-use super::node::Node;
-use slotmap::{new_key_type, SlotMap};
+use super::node::{Node, NodeId};
+use slotmap::{SecondaryMap, SlotMap};
 use std::{
     any::{Any, TypeId},
     cell::{Cell, RefCell},
@@ -11,39 +11,12 @@ thread_local! {
     static SCOPE: Scope = Scope::default();
 }
 
-new_key_type! {
-    pub struct NodeId;
-}
-
 #[derive(Default)]
 pub struct Scope {
     current: Cell<Option<NodeId>>,
     nodes: Rc<RefCell<SlotMap<NodeId, Node>>>,
     layers: Rc<RefCell<HashMap<TypeId, Box<dyn Any>>>>,
-}
-
-impl NodeId {
-    pub fn with<R>(&self, f: impl FnOnce(&Node) -> R) -> Option<R> {
-        with_scope(|s| s.nodes.borrow().get(self.clone()).map(|x| f(x)))
-    }
-
-    pub fn with_value<T: 'static, R>(&self, f: impl FnOnce(&T) -> R) -> Option<R> {
-        self.with(|n| {
-            let value = n.value.borrow();
-            let value = value.as_ref().map(|v| v.downcast_ref::<T>());
-            value.flatten().map(f)
-        })
-        .flatten()
-    }
-
-    pub fn update(&self) {
-        let stale = self.with(|n| n.stale.get()).unwrap_or(false);
-        if stale {
-            let previous = with_scope(|s| s.set_current_node(Some(self.clone())));
-            self.with(|n| n.refresh());
-            with_scope(|s| s.set_current_node(previous));
-        }
-    }
+    cleanup: Rc<RefCell<SecondaryMap<NodeId, Box<dyn FnOnce()>>>>,
 }
 
 impl Scope {
@@ -57,6 +30,18 @@ impl Scope {
 
     pub fn set_current_node(&self, current: Option<NodeId>) -> Option<NodeId> {
         self.current.replace(current)
+    }
+
+    pub fn with_node<R>(&self, id: NodeId, f: impl FnOnce(&Node) -> R) -> R {
+        let nodes = self.nodes.borrow();
+        let value = nodes.get(id).map(|n| f(n));
+        value.expect("Node has been disposed")
+    }
+
+    pub fn with_node_mut<R>(&self, id: NodeId, f: impl FnOnce(&mut Node) -> R) -> R {
+        let mut nodes = self.nodes.borrow_mut();
+        let value = nodes.get_mut(id).map(|n| f(n));
+        value.expect("Node has been disposed")
     }
 
     pub fn provide_layer<T: Clone + Any + 'static>(&self, x: T) {
@@ -108,4 +93,41 @@ pub fn use_layer_option<T: Clone + Any + 'static>() -> Option<T> {
 
 pub fn use_layer_or_default<T: Clone + Default + Any + 'static>() -> T {
     with_scope(|s| s.use_layer_or_default::<T>())
+}
+
+pub fn create_scope<T>(f: impl FnOnce() -> T) -> T {
+    let id = with_scope(|s| s.insert_node(Node::default()));
+    with_scope(|s| s.set_current_node(Some(id)));
+    let node = f();
+    id.cleanup();
+    node
+}
+
+impl NodeId {
+    pub fn children(&self) -> Vec<NodeId> {
+        with_scope(|s| {
+            s.nodes
+                .borrow()
+                .iter()
+                .filter(|(_, n)| n.parent == Some(*self))
+                .map(|(id, _)| id)
+                .collect()
+        })
+    }
+
+    pub fn cleanup(&self) {
+        for child in self.children() {
+            child.cleanup()
+        }
+        if let Some(s) = with_scope(|s| s.cleanup.borrow_mut().remove(*self)) {
+            s()
+        }
+    }
+}
+
+pub fn on_cleanup(f: impl FnOnce() + 'static) {
+    with_scope(|s| {
+        let parent = s.get_current_node().expect("Outside tracking scope");
+        s.cleanup.borrow_mut().insert(parent, Box::new(f))
+    });
 }

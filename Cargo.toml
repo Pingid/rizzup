@@ -18,3 +18,11 @@ path = "examples/hello-world.rs"
 [[example]]
 name = "text-input"
 path = "examples/text-input.rs"
+
+[[example]]
+name = "async"
+path = "examples/async.rs"
+
+[[example]]
+name = "todo-app"
+path = "examples/todo-app.rs"

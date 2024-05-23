@@ -1,58 +1,58 @@
 use crate::{
-    node::{Node, NodeRef},
-    scope::{with_scope, NodeId},
+    node::{NodeId, NodeRef},
+    signal::{RwSignal, SignalWriter},
 };
-use ratatui::widgets::WidgetRef;
+use ratatui::widgets::{StatefulWidgetRef, WidgetRef};
 use std::any::Any;
 
-pub struct ViewWidget(Box<dyn WidgetRef>);
+// WidgetRef Wrapper type
+pub struct WidgetNode(Box<dyn Fn(ratatui::prelude::Rect, &mut ratatui::prelude::Buffer)>);
 
-impl ViewWidget {
-    pub fn new<T: WidgetRef + Any>(inner: T) -> Self {
-        Self(Box::new(inner))
-    }
-}
-
-impl WidgetRef for ViewWidget {
-    fn render_ref(&self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {
-        self.0.render_ref(area, buf)
-    }
-}
-
+// Child
 #[derive(Clone, Copy)]
 pub struct Child(pub NodeId);
 
 impl NodeRef for Child {
-    fn get_node(&self) -> NodeId {
-        self.0
+    fn node_id_ref(&self) -> &NodeId {
+        &self.0
     }
 }
 
 impl WidgetRef for Child {
     fn render_ref(&self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {
-        self.0.update();
-        self.0.with_value(|n: &ViewWidget| n.render_ref(area, buf));
+        self.0.with_value_ref(|n: &WidgetNode| n.0(area, buf));
     }
 }
 
-pub fn view_widget<V: WidgetRef + Any>(f: impl Fn() -> V + 'static) -> Child {
-    let node = Node::create_with_memo(move || ViewWidget::new(f()));
-    let id = with_scope(|s| s.insert_node(node));
+pub fn view_fn(
+    f: impl Fn(ratatui::prelude::Rect, &mut ratatui::prelude::Buffer) + 'static,
+) -> Child {
+    let id = NodeId::from_value(WidgetNode(Box::new(f)));
     Child(id)
 }
 
-struct ViewRenderWidget(Box<dyn Fn(ratatui::prelude::Rect, &mut ratatui::prelude::Buffer)>);
-impl WidgetRef for ViewRenderWidget {
-    fn render_ref(&self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) {
-        self.0(area, buf)
-    }
+pub fn view_widget<V: WidgetRef + Any>(f: impl Fn() -> V + 'static) -> Child {
+    let id = NodeId::from_memo(move || {
+        let w = Box::new(f());
+        WidgetNode(Box::new(move |area, buf| w.render_ref(area, buf)))
+    });
+    Child(id)
 }
 
-pub fn view_render(
-    f: impl Fn(ratatui::prelude::Rect, &mut ratatui::prelude::Buffer) + 'static,
+pub fn view_statefull_widget<
+    V: StatefulWidgetRef<State = S> + Any,
+    S: std::fmt::Debug + Clone + Any + 'static,
+>(
+    s: RwSignal<S>,
+    f: impl Fn() -> V + 'static,
 ) -> Child {
-    let node = Node::create_with_value(ViewRenderWidget(Box::new(f)));
-    let id = with_scope(|s| s.insert_node(node));
+    let id = NodeId::from_memo(move || {
+        let widget = f();
+        let state = s.clone();
+        WidgetNode(Box::new(move |area, buf| {
+            RwSignal::update(&state, |state| widget.render_ref(area, buf, state))
+        }))
+    });
     Child(id)
 }
 

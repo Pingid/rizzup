@@ -1,4 +1,7 @@
-use crate::scope::use_layer;
+use crate::{
+    node::Node,
+    scope::{use_layer, with_scope},
+};
 use futures::Future;
 use std::{any::Any, pin::Pin};
 use tokio::{
@@ -19,8 +22,8 @@ pub struct AsyncTasks {
     pub shutdown_sender: Option<watch::Sender<()>>,
 }
 
-impl AsyncTasks {
-    pub fn new() -> Self {
+impl Default for AsyncTasks {
+    fn default() -> Self {
         let (message_tx, message_rx) = mpsc::unbounded_channel::<Message>();
         let (task_tx, mut task_rx) = mpsc::unbounded_channel::<Task>();
         let (shutdown_tx, mut shutdown_rx) = watch::channel::<()>(());
@@ -53,7 +56,9 @@ impl AsyncTasks {
             shutdown_sender: Some(shutdown_tx),
         }
     }
+}
 
+impl AsyncTasks {
     pub async fn reciever(&mut self) -> UnboundedReceiver<Message> {
         let reciever = self.message_rx.take().expect("Already taken reciever");
         reciever
@@ -99,4 +104,15 @@ impl Dispatcher {
     pub fn dispatch<T: Send + Any + 'static>(&self, x: T) {
         let _ = self.0.send(Box::new(x));
     }
+}
+
+pub async fn create_async_scope<T, F>(f: impl FnOnce() -> F) -> T
+where
+    F: Future<Output = T>,
+{
+    let id = with_scope(|s| s.insert_node(Node::default()));
+    with_scope(|s| s.set_current_node(Some(id)));
+    let node = f().await;
+    id.cleanup();
+    node
 }

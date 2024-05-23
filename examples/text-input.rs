@@ -1,9 +1,9 @@
 use anyhow::Result;
 use crossterm::event;
 use ratatui::{widgets::*, Terminal};
-use rizzup::prelude::*;
+use rizzup::{prelude::*, scope::provide_layer};
 
-fn input(_: ReadSignal<()>) -> Child {
+fn input() -> Child {
     let (reader, writer) = create_signal("".to_string());
 
     on(move |key: &event::KeyCode| match key {
@@ -29,25 +29,29 @@ fn main() -> Result<()> {
     let mut term = init_tui()?;
     init_panic_hook();
 
-    let events = Events::default();
-    let app = App::new(input, ()).with_layer(&events).render();
+    let events = Dispatcher::default();
+    create_scope(|| {
+        provide_layer(events.clone());
+        let app = input();
 
-    loop {
-        term.draw(|f| f.render_widget_ref(app, f.size()))?;
+        loop {
+            term.draw(|f| f.render_widget_ref(app, f.size()))?;
 
-        let event = event::read()?;
-        if let event::Event::Key(key) = event {
-            if key.kind == event::KeyEventKind::Press {
-                events.dispatch(key.code)
-            }
-            if key.kind == event::KeyEventKind::Press && key.code == event::KeyCode::Esc {
-                break;
+            let event = event::read()?;
+            if let event::Event::Key(key) = event {
+                if key.kind == event::KeyEventKind::Press {
+                    events.dispatch(key.code)
+                }
+                if key.kind == event::KeyEventKind::Press && key.code == event::KeyCode::Esc {
+                    break;
+                }
             }
         }
-    }
 
-    restore_tui()?;
+        restore_tui()?;
 
+        Ok::<(), anyhow::Error>(())
+    })?;
     Ok(())
 }
 

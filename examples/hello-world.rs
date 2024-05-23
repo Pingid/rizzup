@@ -3,7 +3,7 @@ use crossterm::event;
 use ratatui::Terminal;
 use rizzup::prelude::*;
 
-fn hello_world(_: ReadSignal<()>) -> Child {
+fn hello_world() -> Child {
     view_widget(|| "Hello World! (press 'q' to quit)")
 }
 
@@ -11,21 +11,23 @@ fn main() -> Result<()> {
     let mut term = init_tui()?;
     init_panic_hook();
 
-    let app = App::new(hello_world, ()).render();
+    create_scope(|| {
+        let app = hello_world();
 
-    loop {
-        term.draw(|f| f.render_widget_ref(app, f.size()))?;
+        loop {
+            term.draw(|f| f.render_widget_ref(app, f.size()))?;
 
-        let event = event::read()?;
-        if let event::Event::Key(key) = event {
-            if key.kind == event::KeyEventKind::Press && key.code == event::KeyCode::Char('q') {
-                break;
+            let event = event::read()?;
+            if let event::Event::Key(key) = event {
+                if key.kind == event::KeyEventKind::Press && key.code == event::KeyCode::Char('q') {
+                    break;
+                }
             }
         }
-    }
 
-    restore_tui()?;
-
+        restore_tui()?;
+        Ok::<(), anyhow::Error>(())
+    })?;
     Ok(())
 }
 
