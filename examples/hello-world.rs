@@ -3,15 +3,15 @@ use crossterm::event;
 use ratatui::Terminal;
 use rizzup::prelude::*;
 
-fn hello_world() -> Child {
-    view_widget(|| "Hello World! (press 'q' to quit)")
+fn hello_world() -> RatView {
+    widget_ref(|| "Hello World! (press 'q' to quit)")
 }
 
 fn main() -> Result<()> {
     let mut term = init_tui()?;
     init_panic_hook();
 
-    create_scope(|| {
+    create_tracking_scope(|| {
         let app = hello_world();
 
         loop {

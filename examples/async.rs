@@ -1,52 +1,71 @@
+use std::any::Any;
+
 use anyhow::Result;
 use crossterm::event;
 use futures::StreamExt;
 use ratatui::{style::Stylize, text::*, widgets::*, Terminal};
-use rizzup::{create_async_scope, prelude::*, scope::provide_layer};
+use rizzup::prelude::*;
 
 #[derive(Debug, Clone)]
 enum Message {
-    Blink(bool),
+    Tick,
 }
 
-fn input() -> Child {
-    let (input_r, input_w) = create_signal("".to_string());
-    let (blink_r, blink_w) = create_signal(false);
+fn input() -> RatView {
+    let input = create_signal("".to_string());
+    let blink = create_signal(true);
+    let active = create_signal(true);
 
-    async_with_dispatch(move |send| async move {
-        let mut b = false;
+    let ticker = create_async_task(active.clone(), move |active, send| async move {
+        if !active {
+            return;
+        }
         loop {
-            b = !b;
-            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-            send.dispatch(Message::Blink(b));
+            send.send(Message::Tick);
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         }
     });
 
-    match_on!(event::KeyCode, {
-        event::KeyCode::Char(ch) => input_w.update(|x| x.push(*ch)),
-        event::KeyCode::Backspace => input_w.update(|x| { x.pop(); }),
+    let input_c = input.clone();
+    create_memo(move || {
+        let _ = input_c.get();
+        active.set(true);
+        blink.set(true);
     });
 
-    match_on!(Message, {
-        Message::Blink(n) => blink_w.set(*n),
+    let input_c = input.clone();
+    on(move |ev: &event::KeyCode| match ev {
+        event::KeyCode::Char(ch) => input_c.update(|x| x.push(*ch)),
+        event::KeyCode::Backspace => input_c.update(|x| {
+            x.pop();
+        }),
+        event::KeyCode::Up => active.set(false),
+        event::KeyCode::Down => active.set(true),
+        _ => {}
     });
 
-    widget! {
+    on(move |ev: &Message| match ev {
+        Message::Tick => blink.update(|v| *v = !*v),
+    });
+
+    widget_ref(move || {
         let block = Block::default()
             .padding(Padding::horizontal(1))
             .borders(Borders::all())
             .title("Start typeing")
-            .title("(Press esc to exit)");
+            .title("(Press esc to exit)")
+            .title(format!("{:?}", ticker.get_state()));
 
-        let lines = Line::from(vec![Span::from(format!("{}", input_r.get())),
-            Span::from(format!("|")).fg(match blink_r.get() {
-                true =>  ratatui::style::Color::Black,
-                false =>  ratatui::style::Color::White,
-            })
+        let lines = Line::from(vec![
+            Span::from(format!("{}", input.get())),
+            Span::from(format!("│")).fg(match blink.get() {
+                true => ratatui::style::Color::Black,
+                false => ratatui::style::Color::Blue,
+            }),
         ]);
 
         Paragraph::new(lines).block(block)
-    }
+    })
 }
 
 #[tokio::main]
@@ -54,31 +73,22 @@ async fn main() -> Result<()> {
     let mut term = init_tui()?;
     init_panic_hook();
 
-    create_async_scope(|| async {
-        let events = Dispatcher::default();
-        let mut sync = AsyncTasks::default();
-        provide_layer(sync.layer.clone());
-        provide_layer(events.clone());
-        let app = input();
-
+    create_async_scope(move |handle| async move {
         let mut reader = crossterm::event::EventStream::new();
-        let mut reciever = sync.reciever().await;
-
+        let app = input();
         loop {
             term.draw(|f| f.render_widget_ref(app, f.size()))?;
 
             tokio::select! {
-                ev = reciever.recv() => match ev {
-                    Some(m) => events.dispatch_boxed(m),
-                    _ => {}
-                },
+                _ = handle.listen() => {},
                 ev = reader.next() => match ev {
                     Some(Ok(event)) => {
                         if let event::Event::Key(key) = event {
                             if key.kind == event::KeyEventKind::Press {
-                                events.dispatch(key.code)
+                                send(key.code)
                             }
                             if key.kind == event::KeyEventKind::Press && key.code == event::KeyCode::Esc {
+                                handle.shutdown().await;
                                 break;
                             }
                         }
@@ -88,12 +98,10 @@ async fn main() -> Result<()> {
             }
         }
 
-        let _ = sync.shutdown().await;
-
         restore_tui()?;
 
         Ok::<(), anyhow::Error>(())
-    }).await?;
+    }).await;
 
     Ok(())
 }

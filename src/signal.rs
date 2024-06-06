@@ -1,138 +1,107 @@
-use crate::{
-    node::{NodeId, NodeRef},
-    scope::with_scope,
-};
-use std::{any::Any, marker::PhantomData};
+use std::marker::PhantomData;
 
-pub trait SignalReader<T: Clone + 'static>: NodeRef {
-    fn get_untracked(&self) -> T {
-        self.node_id_ref().with_value_ref(|v: &T| v.clone())
+use crate::environment::with_runtime;
+use crate::nodes::{IntoScope, Scope};
+
+pub trait SignalRead<T: 'static>: IntoScope {
+    fn with_untracked<R>(&self, f: impl FnOnce(&T) -> R) -> Option<R> {
+        with_runtime(|r| r.nodes.with_value::<T, R>(self.into_scope(), |n| f(n)))
     }
-
-    fn get(&self) -> T {
-        let node = self.node_id_ref();
-        let parent = with_scope(|s| s.get_current_node()).expect("Missing tracking scope");
-        node.add_dependancy(parent);
-        self.get_untracked()
+    fn with<R>(&self, f: impl FnOnce(&T) -> R) -> Option<R> {
+        with_runtime(|r| r.track_dependant(self.into_scope()));
+        self.with_untracked(f)
     }
 }
 
-pub trait SignalWriter<T: Clone + 'static>: NodeRef {
-    fn update_untracked(&self, f: impl FnOnce(&mut T)) {
-        self.node_id_ref().with_value_mut(f);
-    }
+pub trait SignalGet<T: 'static>: SignalRead<T> {
+    fn get_untracked(&self) -> T;
+    fn get(&self) -> T;
+}
 
+pub trait SignalUpdate<T: 'static>: IntoScope {
+    fn update_silent(&self, f: impl FnOnce(&mut T)) {
+        with_runtime(|r| r.nodes.with_value(self.into_scope(), f));
+    }
     fn update(&self, f: impl FnOnce(&mut T)) {
-        let node = self.node_id_ref();
-        node.with_value_mut(f);
-        node.mark_stale();
+        self.update_silent(f);
+        with_runtime(|r| r.update_dependants(self.into_scope()));
     }
+}
 
-    fn set_untracked(&self, value: T) {
-        self.update_untracked(|v| *v = value);
+pub trait SignalSet<T: 'static>: SignalUpdate<T> {
+    fn set_silent(&self, new: T) {
+        self.update_silent(|v| *v = new);
     }
+    fn set(&self, new: T) {
+        self.update(|v| *v = new)
+    }
+}
 
-    fn set(&self, value: T) {
-        self.update(|v| *v = value);
-    }
+macro_rules! impl_signal_get {
+    ($iden:ident) => {
+        impl<T: std::fmt::Debug + Clone + 'static> std::fmt::Debug for $iden<T> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let value = self.get_untracked();
+                f.debug_struct(stringify!($type))
+                    .field("value", &value)
+                    .finish()
+            }
+        }
+
+        impl<T: Clone + 'static> SignalGet<T> for $iden<T> {
+            default fn get_untracked(&self) -> T {
+                self.with_untracked(|v| v.clone())
+                    .expect(format!("Node {:?} has been disposed", self.into_scope()).as_str())
+            }
+            default fn get(&self) -> T {
+                self.with(|v| v.clone())
+                    .expect(format!("Node {:?} has been disposed", self.into_scope()).as_str())
+            }
+        }
+
+        impl<T: Copy + 'static> SignalGet<T> for $iden<T> {
+            fn get_untracked(&self) -> T {
+                self.with_untracked(|v| *v)
+                    .expect(format!("Node {:?} has been disposed", self.into_scope()).as_str())
+            }
+            fn get(&self) -> T {
+                self.with(|v| *v)
+                    .expect(format!("Node {:?} has been disposed", self.into_scope()).as_str())
+            }
+        }
+    };
 }
 
 #[derive(Clone, Copy)]
-pub struct ReadSignal<T>(NodeId, PhantomData<T>);
+pub struct ReadSignal<T>(pub Scope, pub PhantomData<T>);
 
-impl<T> From<NodeId> for ReadSignal<T> {
-    fn from(value: NodeId) -> Self {
-        Self(value, PhantomData)
+impl<T> IntoScope for ReadSignal<T> {
+    fn into_scope(&self) -> Scope {
+        self.0
     }
 }
-
-impl<T> NodeRef for ReadSignal<T> {
-    fn node_id_ref(&self) -> &NodeId {
-        &self.0
-    }
-}
-
-impl<T: Clone + 'static> SignalReader<T> for ReadSignal<T> {}
+impl<T: 'static> SignalRead<T> for ReadSignal<T> {}
+impl_signal_get!(ReadSignal);
 
 #[derive(Clone, Copy)]
-pub struct WriteSignal<T>(NodeId, PhantomData<T>);
+pub struct WriteSignal<T>(pub Scope, pub PhantomData<T>);
 
-impl<T> From<NodeId> for WriteSignal<T> {
-    fn from(value: NodeId) -> Self {
-        Self(value, PhantomData)
+impl<T> IntoScope for WriteSignal<T> {
+    fn into_scope(&self) -> Scope {
+        self.0
     }
 }
-
-impl<T> NodeRef for WriteSignal<T> {
-    fn node_id_ref(&self) -> &NodeId {
-        &self.0
-    }
-}
-
-impl<T: Clone + 'static> SignalWriter<T> for WriteSignal<T> {}
+impl<T: 'static> SignalUpdate<T> for WriteSignal<T> {}
+impl<T: 'static> SignalSet<T> for WriteSignal<T> {}
 
 #[derive(Clone, Copy)]
-pub struct RwSignal<T>(NodeId, PhantomData<T>);
-
-impl<T> From<NodeId> for RwSignal<T> {
-    fn from(value: NodeId) -> Self {
-        Self(value, PhantomData)
+pub struct Signal<T>(pub Scope, pub PhantomData<T>);
+impl<T> IntoScope for Signal<T> {
+    fn into_scope(&self) -> Scope {
+        self.0
     }
 }
-
-impl<T> NodeRef for RwSignal<T> {
-    fn node_id_ref(&self) -> &NodeId {
-        &self.0
-    }
-}
-impl<T: Clone + 'static> SignalReader<T> for RwSignal<T> {}
-impl<T: Clone + 'static> SignalWriter<T> for RwSignal<T> {}
-
-pub fn create_signal<T: Clone + 'static>(value: T) -> (ReadSignal<T>, WriteSignal<T>) {
-    let id = NodeId::from_value(value);
-    (id.into(), id.into())
-}
-
-pub fn create_rw_signal<T: Clone + 'static>(value: T) -> RwSignal<T> {
-    let id = NodeId::from_value(value);
-    id.into()
-}
-
-pub fn create_memo<T: Any + Clone + 'static>(f: impl Fn() -> T + 'static) -> ReadSignal<T> {
-    let id = NodeId::from_memo(f);
-    id.into()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::super::node::*;
-    use super::*;
-
-    #[test]
-    fn test_memo_inherits_value() {
-        with_scope(|s| s.set_current_node(Some(s.insert_node(Node::default()))));
-        let sig = create_rw_signal("foo");
-        let value = create_memo(move || sig.get().to_uppercase());
-        assert_eq!(sig.get(), "foo");
-        assert_eq!(value.get(), "FOO");
-        sig.set("bar");
-        assert_eq!(sig.get(), "bar");
-        assert_eq!(value.get(), "BAR");
-    }
-
-    #[test]
-    fn nested_memo_inherits_value() {
-        with_scope(|s| s.set_current_node(Some(s.insert_node(Node::default()))));
-        let value = create_memo(move || {
-            let sig = create_rw_signal("foo");
-            assert_eq!(sig.get(), "foo");
-            let value = create_memo(move || sig.get().to_uppercase());
-            assert_eq!(value.get(), "FOO");
-            sig.set("bar");
-            assert_eq!(sig.get(), "bar");
-            assert_eq!(value.get(), "BAR");
-            "foo"
-        });
-        assert_eq!(value.get(), "foo")
-    }
-}
+impl<T: 'static> SignalRead<T> for Signal<T> {}
+impl_signal_get!(Signal);
+impl<T: 'static> SignalUpdate<T> for Signal<T> {}
+impl<T: 'static> SignalSet<T> for Signal<T> {}

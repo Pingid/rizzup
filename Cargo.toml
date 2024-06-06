@@ -4,12 +4,16 @@ version = "0.0.1"
 edition = "2021"
 
 [dependencies]
+ratatui = { version = "0.26.2", features = ["unstable-widget-ref"] }
 anyhow = "1.0.86"
 crossterm = { version = "0.27.0", features = ["event-stream"] }
 futures = "0.3.30"
-ratatui = { version = "0.26.2", features = ["unstable-widget-ref"] }
 slotmap = "1.0.7"
 tokio = { version = "1.37.0", features = ["full"] }
+tracing = "0.1.40"
+
+# [features]
+# ratatui-widget-ref = ["ratatui/unstable-widget-ref"]
 
 [[example]]
 name = "hello-world"
@@ -26,3 +30,7 @@ path = "examples/async.rs"
 [[example]]
 name = "todo-app"
 path = "examples/todo-app.rs"
+
+[[example]]
+name = "tabs"
+path = "examples/tabs.rs"
