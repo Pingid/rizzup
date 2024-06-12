@@ -8,6 +8,5 @@ pub mod prelude;
 pub mod ratatui;
 pub mod recievers;
 pub mod runtime;
-pub mod selector;
 pub mod signal;
 pub mod tasks;
