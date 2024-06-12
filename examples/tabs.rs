@@ -12,13 +12,11 @@ struct State {
 fn tab1() -> RatView {
     let text = use_context::<Signal<State>>();
 
-    let text_c = text.clone();
-    on(move |key: &event::KeyCode| match key {
-        event::KeyCode::Char(ch) => text_c.update(|x| x.input.push(*ch)),
-        event::KeyCode::Backspace => text_c.update(|x| {
+    reactive!(receiver: clone(text): {
+        event::KeyCode::Char(ch) => text.update(|x| x.input.push(*ch)),
+        event::KeyCode::Backspace => text.update(|x| {
             x.input.pop();
         }),
-        _ => {}
     });
 
     widget_ref(move || format!("Tab 1 {}", text.get().input))
@@ -28,13 +26,9 @@ fn tab2() -> RatView {
     let value = create_signal("".to_string());
     let text = use_context::<Signal<State>>();
 
-    let value_c = value.clone();
-    on(move |key: &event::KeyCode| match key {
-        event::KeyCode::Char(ch) => value_c.update(|x| x.push(*ch)),
-        event::KeyCode::Backspace => value_c.update(|x| {
-            x.pop();
-        }),
-        _ => {}
+    reactive!(receiver: clone(value): {
+        event::KeyCode::Char(ch) => value.update(|x| x.push(*ch)),
+        event::KeyCode::Backspace => value.update(|x| { x.pop(); }),
     });
 
     widget_ref(move || format!("Tab 1 {} Tab 2 {}", text.get().input, value.get()))
@@ -44,20 +38,16 @@ fn input() -> RatView {
     provide_context(create_signal(State::default()));
     let state = use_context::<Signal<State>>();
 
-    let state_c = state.clone();
-    let tab = create_selector(move || state_c.get().tab);
+    let tab = reactive!(selector: clone(state): state.get().tab);
 
-    let state_c = state.clone();
-
-    on(move |key: &event::KeyCode| match key {
-        event::KeyCode::Left => state_c.update(|v| v.tab = 0),
-        event::KeyCode::Right => state_c.update(|v| v.tab = 1),
-        _ => {}
+    reactive!(receiver: clone(state): {
+        event::KeyCode::Left => state.update(|v| v.tab = 0),
+        event::KeyCode::Right => state.update(|v| v.tab = 1),
     });
 
     widget_ref(move || match tab.get() == 0 {
         true => tab1(),
-        false => widget_ref(move || widget_ref(move || tab2())),
+        false => tab2(),
     })
 }
 
