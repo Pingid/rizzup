@@ -24,7 +24,7 @@ impl<T: 'static> SignalRead<T> for Select<T> {
     fn with_untracked<R>(&self, f: impl FnOnce(&T) -> R) -> Option<R> {
         let getter = self.getter.clone();
         with_runtime(|r| {
-            r.nodes.with(self.into_scope(), |n| {
+            r.nodes.with_node(self.into_scope(), |n| {
                 let value = (*getter)(&n.value.as_ref().unwrap());
                 let value = value.downcast_ref::<T>().unwrap();
                 f(&value)
@@ -53,7 +53,7 @@ impl<T: Clone + 'static> SignalUpdate<T> for Select<T> {
     fn update_silent(&self, f: impl FnOnce(&mut T)) {
         let updator = self.updator.clone();
         with_runtime(|s| {
-            s.nodes.with(self.id, |n| {
+            s.nodes.with_node(self.id, |n| {
                 f(updator(n.value.as_mut().unwrap())
                     .downcast_mut::<T>()
                     .unwrap())

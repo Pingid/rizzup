@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use anyhow::Result;
 use crossterm::event;
 use futures::StreamExt;

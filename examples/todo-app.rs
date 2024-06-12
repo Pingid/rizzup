@@ -173,7 +173,7 @@ fn main() -> Result<()> {
     let mut term = init_tui()?;
     init_panic_hook();
 
-    create_tracking_scope(|| {
+    with_tracking_scope(|| {
         let app = todo_list_app();
 
         loop {

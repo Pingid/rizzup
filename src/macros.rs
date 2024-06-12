@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn test_memo_macro() {
-        create_tracking_scope(|| {
+        with_tracking_scope(|| {
             let s1 = create_signal("one".to_string());
             let s2 = create_signal("two".to_string());
 

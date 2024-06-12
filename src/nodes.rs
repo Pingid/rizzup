@@ -35,7 +35,7 @@ impl ReactiveNodes {
         self.0.borrow_mut().insert(node)
     }
 
-    pub(crate) fn create(
+    pub(crate) fn add_node(
         &self,
         scope: Scope,
         cb: Option<Callback>,
@@ -48,21 +48,25 @@ impl ReactiveNodes {
         self.insert(node)
     }
 
-    pub(crate) fn with<R>(&self, id: Scope, f: impl FnOnce(&mut ReactiveNode) -> R) -> Option<R> {
+    pub(crate) fn with_node<R>(
+        &self,
+        id: Scope,
+        f: impl FnOnce(&mut ReactiveNode) -> R,
+    ) -> Option<R> {
         self.0.borrow_mut().get_mut(id).map(|n| f(n))
     }
 
-    pub(crate) fn get_children(&self, scope: Scope) -> Vec<Scope> {
+    pub(crate) fn get_node_children(&self, scope: Scope) -> Vec<Scope> {
         let nodes = self.0.borrow();
         let children = nodes.iter().filter(|x| x.1.parent == Some(scope));
         let children = children.map(|x| x.0);
         children.collect()
     }
 
-    pub(crate) fn get_scope_children(&self, scope: Scope) -> Vec<Scope> {
+    pub(crate) fn get_node_children_recursive(&self, scope: Scope) -> Vec<Scope> {
         let mut all = vec![];
-        for child in self.get_children(scope) {
-            all.extend(self.get_scope_children(child));
+        for child in self.get_node_children(scope) {
+            all.extend(self.get_node_children_recursive(child));
             all.push(child)
         }
         all
@@ -72,8 +76,11 @@ impl ReactiveNodes {
         self.0.borrow().get(id).map(|n| n.parent).flatten()
     }
 
-    pub(crate) fn take_recompute(&self, scope: Scope) -> (Option<Callback>, Option<Box<dyn Any>>) {
-        self.with(scope, |n| match n.callback.is_some() {
+    pub(crate) fn take_node_callback_and_value(
+        &self,
+        scope: Scope,
+    ) -> (Option<Callback>, Option<Box<dyn Any>>) {
+        self.with_node(scope, |n| match n.callback.is_some() {
             true => (n.callback.take(), n.value.take()),
             false => (None, None),
         })
@@ -88,7 +95,7 @@ impl ReactiveNodes {
         value: Option<Box<dyn Any>>,
         previous: Option<Box<dyn Any>>,
     ) -> Vec<Scope> {
-        self.with(scope, |n| {
+        self.with_node(scope, |n| {
             n.callback = Some(cb);
             if let Some(val) = value {
                 n.value = Some(val);
@@ -101,7 +108,7 @@ impl ReactiveNodes {
     }
 
     pub(crate) fn take_dependants(&self, scope: Scope) -> Vec<Scope> {
-        self.with(scope, |n| n.dependants.drain().collect())
+        self.with_node(scope, |n| n.dependants.drain().collect())
             .unwrap_or_default()
     }
 
@@ -122,11 +129,11 @@ impl ReactiveNodes {
         scope: Scope,
         f: impl FnOnce(&mut T) -> R,
     ) -> Option<R> {
-        let value = self.with(scope, |n| n.value.take()).flatten();
+        let value = self.with_node(scope, |n| n.value.take()).flatten();
         let mut result = None;
         if let Some(Ok(mut value)) = value.map(|x| x.downcast::<T>()) {
             result = Some(f(&mut value));
-            self.with(scope, |n| n.value.replace(value));
+            self.with_node(scope, |n| n.value.replace(value));
         }
         return result;
     }

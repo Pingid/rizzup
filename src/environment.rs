@@ -10,7 +10,7 @@ pub fn with_runtime<R>(f: impl FnOnce(&Runtime) -> R) -> R {
     RUNTIME.with(f)
 }
 
-pub fn create_tracking_scope<R>(f: impl FnOnce() -> R) -> R {
+pub fn with_tracking_scope<R>(f: impl FnOnce() -> R) -> R {
     with_runtime(|r| {
         let scope = r.nodes.insert(ReactiveNode::default());
         let previous = r.tracker.replace(Some(scope));
@@ -37,9 +37,14 @@ pub fn use_context_option<T: Clone + Any + 'static>() -> Option<T> {
 }
 
 pub fn use_context<T: Clone + Any + 'static>() -> T {
-    let p = with_runtime(|r| r.get_current_scope());
-    use_context_option()
-        .expect(format!("Missing {} in parent scope {:?}", type_name::<T>(), p,).as_str())
+    use_context_option().expect(
+        format!(
+            "Missing {} in parent scope {:?}",
+            type_name::<T>(),
+            with_runtime(|r| r.get_current_scope())
+        )
+        .as_str(),
+    )
 }
 
 /// Messages
@@ -48,7 +53,7 @@ pub fn on<T: 'static>(f: impl Fn(&T) + 'static) {
 }
 
 pub fn send_boxed(message: &Box<dyn Any>) {
-    with_runtime(|r| r.send(r.get_current_scope(), message));
+    with_runtime(|r| r.send(r.get_current_scope(), message, true));
 }
 
 pub fn send<T: Any + 'static>(message: T) {
@@ -87,7 +92,7 @@ pub fn create_selector<T: std::fmt::Debug + PartialEq + 'static>(
 mod tests {
     use std::{cell::Cell, rc::Rc};
 
-    use crate::environment::{create_tracking_scope, with_runtime};
+    use crate::environment::{with_runtime, with_tracking_scope};
 
     use super::*;
 
@@ -114,13 +119,13 @@ mod tests {
 
     #[test]
     fn test_signal_dependancy_tracking() {
-        create_tracking_scope(|| test_signal_memo_dependancy());
+        with_tracking_scope(|| test_signal_memo_dependancy());
         test_runtime_cleanup_up()
     }
 
     #[test]
     fn test_signal_dependancy_nested() {
-        create_tracking_scope(|| {
+        with_tracking_scope(|| {
             create_memo(|| test_signal_memo_dependancy());
         });
         test_runtime_cleanup_up()
@@ -128,7 +133,7 @@ mod tests {
 
     #[test]
     fn test_signal_dependancy_tracks_latest() {
-        create_tracking_scope(|| {
+        with_tracking_scope(|| {
             let count = Rc::new(Cell::new(0));
             let trigger = create_signal(0);
             let s1 = create_signal("foo");
@@ -159,7 +164,7 @@ mod tests {
 
     #[test]
     fn test_signal_selector() {
-        create_tracking_scope(|| {
+        with_tracking_scope(|| {
             let count = Rc::new(Cell::new(0));
             let source = create_signal((0, 0));
             let s1 = create_selector(move || Signal::<(i32, i32)>::get(&source).0);
@@ -185,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_cleanup() {
-        create_tracking_scope(|| {
+        with_tracking_scope(|| {
             let trig = create_signal(0);
             let count = create_signal(0);
 
@@ -200,7 +205,7 @@ mod tests {
 
     #[test]
     fn test_recievers_cleaned_up() {
-        create_tracking_scope(|| {
+        with_tracking_scope(|| {
             let recieved = create_signal(0);
             let trig = create_signal(0);
 
@@ -225,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_recievers_send_deep() {
-        create_tracking_scope(|| {
+        with_tracking_scope(|| {
             let recieved = create_signal(0);
 
             create_memo(move || {
@@ -249,7 +254,7 @@ mod tests {
         fn odd(f: impl Fn((String, usize)) + 'static) {
             on(move |ev: &usize| f(("odd".to_string(), *ev)))
         }
-        create_tracking_scope(|| {
+        with_tracking_scope(|| {
             let sig = create_signal(0);
             let result = create_signal(("init".to_string(), 0));
 
@@ -273,12 +278,3 @@ mod tests {
         })
     }
 }
-
-// fn debug_runtime(r: &Runtime) {
-//     let nodes = r.nodes.0.borrow();
-//     println!("\n");
-//     for n in nodes.iter() {
-//         println!("{:?}", n);
-//     }
-//     println!("\n");
-// }
