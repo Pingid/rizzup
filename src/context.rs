@@ -26,19 +26,3 @@ impl Contexts {
         None
     }
 }
-
-// pub fn with_context<R>(f: impl FnOnce(&Context) -> R) -> R {
-//     CONTEXT.with(f)
-// }
-
-// pub fn provide_context<T: Clone + Any + 'static>(x: T) {
-//     with_context(|s| s.provide_context(x))
-// }
-
-// pub fn use_context_option<T: Clone + Any + 'static>() -> Option<T> {
-//     with_context(|s| s.use_context_option())
-// }
-
-// pub fn use_context<T: Clone + Any + 'static>() -> T {
-//     with_context(|s| s.use_context())
-// }
