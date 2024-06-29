@@ -1,0 +1,18 @@
+[package]
+name = "rizzup"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.86"
+crossterm = "0.27.0"
+ratatui = { version = "0.26.2", features = ["unstable-widget-ref"] }
+slotmap = "1.0.7"
+
+[[example]]
+name = "hello-world"
+path = "examples/hello-world.rs"
+
+[[example]]
+name = "text-input"
+path = "examples/text-input.rs"
